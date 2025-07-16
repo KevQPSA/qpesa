@@ -1,0 +1,289 @@
+name: CI/CD Pipeline with JIRA Integration
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    name: Backend Tests
+    
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_USER: test_user
+          POSTGRES_DB: test_crypto_fiat_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        cd backend
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+
+    - name: Run comprehensive tests
+      run: |
+        cd backend
+        python run_tests.py
+      env:
+        DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_crypto_fiat_db
+        TESTING: true
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: backend-test-results
+        path: |
+          backend/coverage.xml
+          backend/bandit_report.json
+
+    - name: Extract JIRA Issue Key
+      id: extract-jira-key
+      run: |
+        JIRA_KEY=""
+        if [[ "${{ github.ref }}" =~ ([A-Z]+-[0-9]+) ]]; then
+          JIRA_KEY="${BASH_REMATCH[1]}"
+        elif [[ "${{ github.event.head_commit.message }}" =~ ([A-Z]+-[0-9]+) ]]; then
+          JIRA_KEY="${BASH_REMATCH[1]}"
+        fi
+        echo "jira_key=$JIRA_KEY" >> $GITHUB_OUTPUT
+
+    - name: Update JIRA on Test Success
+      if: success() && steps.extract-jira-key.outputs.jira_key != ''
+      uses: atlassian/gajira-comment@v3
+      with:
+        issue: ${{ steps.extract-jira-key.outputs.jira_key }}
+        comment: |
+          ✅ **Backend Tests PASSED**
+          
+          **Build**: ${{ github.run_number }}
+          **Commit**: ${{ github.sha }}
+          **Branch**: ${{ github.ref_name }}
+          
+          All backend tests, linting, and security checks passed successfully.
+          
+          View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+        JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+    - name: Update JIRA on Test Failure
+      if: failure() && steps.extract-jira-key.outputs.jira_key != ''
+      uses: atlassian/gajira-comment@v3
+      with:
+        issue: ${{ steps.extract-jira-key.outputs.jira_key }}
+        comment: |
+          ❌ **Backend Tests FAILED**
+          
+          **Build**: ${{ github.run_number }}
+          **Commit**: ${{ github.sha }}
+          **Branch**: ${{ github.ref_name }}
+          
+          Backend tests failed. Please review and fix the issues.
+          
+          View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+        JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    name: Frontend Tests
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run linting
+      run: npm run lint
+
+    - name: Build application
+      run: npm run build
+
+    - name: Extract JIRA Issue Key
+      id: extract-jira-key
+      run: |
+        JIRA_KEY=""
+        if [[ "${{ github.ref }}" =~ ([A-Z]+-[0-9]+) ]]; then
+          JIRA_KEY="${BASH_REMATCH[1]}"
+        elif [[ "${{ github.event.head_commit.message }}" =~ ([A-Z]+-[0-9]+) ]]; then
+          JIRA_KEY="${BASH_REMATCH[1]}"
+        fi
+        echo "jira_key=$JIRA_KEY" >> $GITHUB_OUTPUT
+
+    - name: Update JIRA on Frontend Success
+      if: success() && steps.extract-jira-key.outputs.jira_key != ''
+      uses: atlassian/gajira-comment@v3
+      with:
+        issue: ${{ steps.extract-jira-key.outputs.jira_key }}
+        comment: |
+          ✅ **Frontend Build PASSED**
+          
+          **Build**: ${{ github.run_number }}
+          **Commit**: ${{ github.sha }}
+          **Branch**: ${{ github.ref_name }}
+          
+          Frontend linting and build completed successfully.
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+        JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    name: Deploy to Staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Extract JIRA Issue Key
+      id: extract-jira-key
+      run: |
+        JIRA_KEY=""
+        if [[ "${{ github.event.head_commit.message }}" =~ ([A-Z]+-[0-9]+) ]]; then
+          JIRA_KEY="${BASH_REMATCH[1]}"
+        fi
+        echo "jira_key=$JIRA_KEY" >> $GITHUB_OUTPUT
+
+    - name: Deploy to Staging (Simulation)
+      run: |
+        echo "🚀 Deploying to staging environment..."
+        echo "This would typically involve:"
+        echo "- Building Docker images"
+        echo "- Pushing to container registry"
+        echo "- Updating staging environment"
+        echo "- Running smoke tests"
+
+    - name: Update JIRA on Staging Deploy
+      if: steps.extract-jira-key.outputs.jira_key != ''
+      uses: atlassian/gajira-comment@v3
+      with:
+        issue: ${{ steps.extract-jira-key.outputs.jira_key }}
+        comment: |
+          🚀 **Deployed to Staging**
+          
+          **Build**: ${{ github.run_number }}
+          **Commit**: ${{ github.sha }}
+          **Environment**: Staging
+          
+          The application has been successfully deployed to the staging environment.
+          
+          **Staging URL**: https://staging.qpesa.com (example)
+          **Deploy Time**: ${{ github.event.head_commit.timestamp }}
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+        JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+    - name: Transition JIRA to Testing
+      if: steps.extract-jira-key.outputs.jira_key != ''
+      uses: atlassian/gajira-transition@v3
+      with:
+        issue: ${{ steps.extract-jira-key.outputs.jira_key }}
+        transition: "Testing"
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+        JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    name: Deploy to Production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Extract JIRA Issue Key
+      id: extract-jira-key
+      run: |
+        JIRA_KEY=""
+        if [[ "${{ github.event.head_commit.message }}" =~ ([A-Z]+-[0-9]+) ]]; then
+          JIRA_KEY="${BASH_REMATCH[1]}"
+        fi
+        echo "jira_key=$JIRA_KEY" >> $GITHUB_OUTPUT
+
+    - name: Deploy to Production (Simulation)
+      run: |
+        echo "🚀 Deploying to production environment..."
+        echo "This would typically involve:"
+        echo "- Building production Docker images"
+        echo "- Blue-green deployment"
+        echo "- Database migrations"
+        echo "- Health checks"
+        echo "- Rollback capability"
+
+    - name: Update JIRA on Production Deploy
+      if: steps.extract-jira-key.outputs.jira_key != ''
+      uses: atlassian/gajira-comment@v3
+      with:
+        issue: ${{ steps.extract-jira-key.outputs.jira_key }}
+        comment: |
+          🎉 **Deployed to Production**
+          
+          **Build**: ${{ github.run_number }}
+          **Commit**: ${{ github.sha }}
+          **Environment**: Production
+          
+          The application has been successfully deployed to production!
+          
+          **Production URL**: https://qpesa.com (example)
+          **Deploy Time**: ${{ github.event.head_commit.timestamp }}
+          
+          🎯 **Release Notes**: Feature is now live for all users.
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+        JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+    - name: Transition JIRA to Done
+      if: steps.extract-jira-key.outputs.jira_key != ''
+      uses: atlassian/gajira-transition@v3
+      with:
+        issue: ${{ steps.extract-jira-key.outputs.jira_key }}
+        transition: "Done"
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+        JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}

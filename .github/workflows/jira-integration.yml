@@ -1,0 +1,120 @@
+name: Jira Integration Workflow
+
+on:
+  push:
+    branches: [ main, develop, feature/*, hotfix/* ]
+  pull_request:
+    branches: [ main, develop ]
+  issues:
+    types: [opened, closed, reopened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  jira-integration:
+    runs-on: ubuntu-latest
+    name: Jira Integration
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Extract Jira Issue Key
+      id: extract-jira-key
+      run: |
+        # Extract Jira issue key from branch name, commit message, or PR title
+        JIRA_KEY=""
+        
+        # Check branch name first
+        if [[ "${{ github.ref }}" =~ ([A-Z]+-[0-9]+) ]]; then
+          JIRA_KEY="${BASH_REMATCH[1]}"
+        fi
+        
+        # Check commit message if no key found in branch
+        if [[ -z "$JIRA_KEY" && "${{ github.event.head_commit.message }}" =~ ([A-Z]+-[0-9]+) ]]; then
+          JIRA_KEY="${BASH_REMATCH[1]}"
+        fi
+        
+        # Check PR title if available
+        if [[ -z "$JIRA_KEY" && "${{ github.event.pull_request.title }}" =~ ([A-Z]+-[0-9]+) ]]; then
+          JIRA_KEY="${BASH_REMATCH[1]}"
+        fi
+        
+        echo "jira_key=$JIRA_KEY" >> $GITHUB_OUTPUT
+        echo "Found Jira key: $JIRA_KEY"
+
+    - name: Transition Jira Issue on PR
+      if: github.event_name == 'pull_request' && steps.extract-jira-key.outputs.jira_key != ''
+      uses: atlassian/gajira-transition@v3
+      with:
+        issue: ${{ steps.extract-jira-key.outputs.jira_key }}
+        transition: "In Review"
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+        JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+    - name: Add Comment to Jira Issue
+      if: steps.extract-jira-key.outputs.jira_key != ''
+      uses: atlassian/gajira-comment@v3
+      with:
+        issue: ${{ steps.extract-jira-key.outputs.jira_key }}
+        comment: |
+          GitHub Activity Update:
+          
+          **Event**: ${{ github.event_name }}
+          **Repository**: ${{ github.repository }}
+          **Branch**: ${{ github.ref_name }}
+          **Commit**: ${{ github.sha }}
+          **Author**: ${{ github.actor }}
+          
+          ${{ github.event_name == 'pull_request' && format('**PR**: {0}', github.event.pull_request.html_url) || '' }}
+          ${{ github.event_name == 'push' && format('**Commit Message**: {0}', github.event.head_commit.message) || '' }}
+          
+          View changes: ${{ github.event.repository.html_url }}/commit/${{ github.sha }}
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+        JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+    - name: Transition to Done on Merge
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.extract-jira-key.outputs.jira_key != ''
+      uses: atlassian/gajira-transition@v3
+      with:
+        issue: ${{ steps.extract-jira-key.outputs.jira_key }}
+        transition: "Done"
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+        JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+  create-jira-issue:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    
+    steps:
+    - name: Create Jira Issue from GitHub Issue
+      uses: atlassian/gajira-create@v3
+      with:
+        project: QPESA
+        issuetype: Task
+        summary: "[GitHub] ${{ github.event.issue.title }}"
+        description: |
+          **GitHub Issue**: ${{ github.event.issue.html_url }}
+          **Created by**: ${{ github.event.issue.user.login }}
+          **Repository**: ${{ github.repository }}
+          
+          **Description**:
+          ${{ github.event.issue.body }}
+          
+          ---
+          *This issue was automatically created from GitHub*
+        fields: |
+          {
+            "labels": ["github-integration", "automated"],
+            "priority": {"name": "Medium"}
+          }
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+        JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
