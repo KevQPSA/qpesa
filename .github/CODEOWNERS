@@ -1,0 +1,50 @@
+# CODEOWNERS file for Kenya Crypto-Fiat Payment Processor
+# This file defines who owns different parts of the codebase
+# and who must review changes to specific files/directories
+
+# Global owners - require review for all changes
+* @KevQPSA
+
+# Backend code - require backend team review
+/backend/ @KevQPSA
+/backend/app/core/ @KevQPSA
+/backend/app/services/ @KevQPSA
+/backend/app/models/ @KevQPSA
+
+# Frontend code - require frontend team review  
+/app/ @KevQPSA
+/components/ @KevQPSA
+/lib/ @KevQPSA
+/styles/ @KevQPSA
+
+# Infrastructure and DevOps
+/.github/ @KevQPSA
+/docker-compose*.yml @KevQPSA
+/Dockerfile* @KevQPSA
+/nginx/ @KevQPSA
+/monitoring/ @KevQPSA
+
+# Database and migrations
+/backend/alembic/ @KevQPSA
+*.sql @KevQPSA
+
+# Security-sensitive files
+/backend/app/core/config.py @KevQPSA
+/backend/app/core/database.py @KevQPSA
+/backend/app/services/auth.py @KevQPSA
+/backend/app/services/payment.py @KevQPSA
+
+# Documentation
+/docs/ @KevQPSA
+README.md @KevQPSA
+*.md @KevQPSA
+
+# Configuration files
+package.json @KevQPSA
+requirements*.txt @KevQPSA
+tsconfig.json @KevQPSA
+tailwind.config.ts @KevQPSA
+
+# JIRA integration files
+/.github/workflows/jira*.yml @KevQPSA
+/scripts/test-jira-connection.sh @KevQPSA

@@ -1,0 +1,224 @@
+name: Branch Protection Check
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main, develop ]
+
+jobs:
+  branch-protection-check:
+    runs-on: ubuntu-latest
+    name: Verify Branch Protection Rules
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check branch protection compliance
+      run: |
+        echo "🔒 Checking branch protection compliance..."
+        
+        # Check if this is a direct push to protected branch
+        if [[ "${{ github.event_name }}" == "push" ]]; then
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "❌ Direct push to main branch detected!"
+            echo "Main branch should only receive changes via Pull Requests"
+            exit 1
+          fi
+        fi
+        
+        # Check PR requirements
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "✅ Pull Request detected - following proper workflow"
+          
+          # Check if PR has proper title format
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          if [[ ! "$PR_TITLE" =~ ^(QPESA-[0-9]+:|feat:|fix:|docs:|style:|refactor:|test:|chore:) ]]; then
+            echo "⚠️ PR title should start with JIRA key (QPESA-XXX:) or conventional commit type"
+            echo "Current title: $PR_TITLE"
+            echo "Examples:"
+            echo "  - QPESA-123: Add Bitcoin wallet integration"
+            echo "  - feat: Add new payment method"
+            echo "  - fix: Resolve authentication issue"
+          fi
+          
+          # Check if PR has description
+          PR_BODY="${{ github.event.pull_request.body }}"
+          if [[ -z "$PR_BODY" || "$PR_BODY" == "null" ]]; then
+            echo "⚠️ PR should have a description explaining the changes"
+          fi
+        fi
+        
+        echo "✅ Branch protection check completed"
+
+  security-check:
+    runs-on: ubuntu-latest
+    name: Security and Quality Check
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check for sensitive files
+      run: |
+        echo "🔍 Checking for sensitive files..."
+        
+        # Check for common sensitive file patterns
+        SENSITIVE_FILES=$(find . -name "*.env" -o -name "*.key" -o -name "*.pem" -o -name "*.p12" -o -name "*.pfx" | grep -v ".env.example" || true)
+        
+        if [[ -n "$SENSITIVE_FILES" ]]; then
+          echo "❌ Sensitive files detected:"
+          echo "$SENSITIVE_FILES"
+          echo "These files should not be committed to the repository"
+          exit 1
+        fi
+        
+        echo "✅ No sensitive files detected"
+
+    - name: Check for hardcoded secrets
+      run: |
+        echo "🔍 Checking for hardcoded secrets..."
+        
+        # Check for common secret patterns (basic check)
+        SECRET_PATTERNS=(
+          "password\s*=\s*['\"][^'\"]{8,}"
+          "api[_-]?key\s*=\s*['\"][^'\"]{16,}"
+          "secret\s*=\s*['\"][^'\"]{16,}"
+          "token\s*=\s*['\"][^'\"]{16,}"
+        )
+        
+        for pattern in "${SECRET_PATTERNS[@]}"; do
+          if grep -r -i -E "$pattern" . --exclude-dir=.git --exclude-dir=node_modules --exclude="*.md" --exclude="*.yml" --exclude="*.yaml"; then
+            echo "⚠️ Potential hardcoded secret detected with pattern: $pattern"
+            echo "Please use environment variables or GitHub secrets instead"
+          fi
+        done
+        
+        echo "✅ Hardcoded secret check completed"
+
+    - name: Check file permissions
+      run: |
+        echo "🔍 Checking file permissions..."
+        
+        # Check for executable files that shouldn't be executable
+        EXECUTABLE_FILES=$(find . -type f -executable -not -path "./.git/*" -not -name "*.sh" -not -name "*.py" | head -10)
+        
+        if [[ -n "$EXECUTABLE_FILES" ]]; then
+          echo "⚠️ Unexpected executable files found:"
+          echo "$EXECUTABLE_FILES"
+          echo "Consider removing execute permissions if not needed"
+        fi
+        
+        echo "✅ File permissions check completed"
+
+  code-quality-gate:
+    runs-on: ubuntu-latest
+    name: Code Quality Gate
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check commit message format
+      if: github.event_name == 'push'
+      run: |
+        echo "📝 Checking commit message format..."
+        
+        COMMIT_MSG="${{ github.event.head_commit.message }}"
+        
+        # Check if commit message follows conventional commits or includes JIRA key
+        if [[ ! "$COMMIT_MSG" =~ ^(QPESA-[0-9]+:|feat:|fix:|docs:|style:|refactor:|test:|chore:|build:|ci:|perf:|revert:) ]]; then
+          echo "⚠️ Commit message should follow conventional commits format or include JIRA key"
+          echo "Current message: $COMMIT_MSG"
+          echo "Examples:"
+          echo "  - QPESA-123: Add Bitcoin wallet integration"
+          echo "  - feat: Add new payment method"
+          echo "  - fix: Resolve authentication issue"
+        else
+          echo "✅ Commit message format is good"
+        fi
+
+    - name: Check for TODO/FIXME comments
+      run: |
+        echo "🔍 Checking for TODO/FIXME comments..."
+        
+        TODO_COUNT=$(grep -r -i "TODO\|FIXME\|XXX\|HACK" . --exclude-dir=.git --exclude-dir=node_modules --exclude="*.md" | wc -l || echo "0")
+        
+        if [[ "$TODO_COUNT" -gt 0 ]]; then
+          echo "⚠️ Found $TODO_COUNT TODO/FIXME comments"
+          echo "Consider creating JIRA issues for these items:"
+          grep -r -i "TODO\|FIXME\|XXX\|HACK" . --exclude-dir=.git --exclude-dir=node_modules --exclude="*.md" | head -5
+        else
+          echo "✅ No TODO/FIXME comments found"
+        fi
+
+    - name: Check file size limits
+      run: |
+        echo "📏 Checking file size limits..."
+        
+        # Check for large files (>1MB)
+        LARGE_FILES=$(find . -type f -size +1M -not -path "./.git/*" -not -path "./node_modules/*" -not -name "*.lock" -not -name "*.log" | head -5)
+        
+        if [[ -n "$LARGE_FILES" ]]; then
+          echo "⚠️ Large files detected (>1MB):"
+          echo "$LARGE_FILES"
+          echo "Consider using Git LFS for large files or optimizing file sizes"
+        else
+          echo "✅ No large files detected"
+        fi
+
+  fintech-compliance-check:
+    runs-on: ubuntu-latest
+    name: Fintech Compliance Check
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check financial calculation precision
+      run: |
+        echo "💰 Checking financial calculation precision..."
+        
+        # Check for float usage in financial calculations
+        FLOAT_USAGE=$(grep -r -n "float\|Float" backend/app/services/ backend/app/models/ --include="*.py" | grep -v "# float is ok here" || true)
+        
+        if [[ -n "$FLOAT_USAGE" ]]; then
+          echo "⚠️ Float usage detected in financial code:"
+          echo "$FLOAT_USAGE"
+          echo "Use Decimal type for financial calculations to avoid precision errors"
+        else
+          echo "✅ No problematic float usage in financial code"
+        fi
+
+    - name: Check for proper error handling
+      run: |
+        echo "🛡️ Checking error handling patterns..."
+        
+        # Check for bare except clauses
+        BARE_EXCEPT=$(grep -r -n "except:" backend/app/ --include="*.py" | grep -v "# bare except is ok here" || true)
+        
+        if [[ -n "$BARE_EXCEPT" ]]; then
+          echo "⚠️ Bare except clauses found:"
+          echo "$BARE_EXCEPT"
+          echo "Use specific exception types for better error handling"
+        else
+          echo "✅ No bare except clauses found"
+        fi
+
+    - name: Check for logging in financial operations
+      run: |
+        echo "📊 Checking logging in financial operations..."
+        
+        # Check if payment/transaction files have logging
+        PAYMENT_FILES=$(find backend/app/services/ -name "*payment*" -o -name "*transaction*" -o -name "*wallet*" | head -5)
+        
+        for file in $PAYMENT_FILES; do
+          if [[ -f "$file" ]]; then
+            if ! grep -q "logger\|logging" "$file"; then
+              echo "⚠️ $file may be missing logging statements"
+            fi
+          fi
+        done
+        
+        echo "✅ Logging check completed"
