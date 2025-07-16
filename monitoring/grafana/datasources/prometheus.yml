@@ -1,0 +1,13 @@
+# Grafana datasource configuration for Prometheus
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus_datasource
+    access: proxy
+    url: http://prometheus:9090 # Points to the Prometheus service in Docker Compose
+    isDefault: true
+    version: 1
+    editable: true
+    # You can add more settings here, e.g., for authentication if Prometheus requires it

@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  nginx:
+    build:
+      context: ./nginx
+    ports:
+      - "80:80"
+      - "443:443" # For HTTPS
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    restart: always
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - ./backend/.env # Ensure this .env has production settings
+    depends_on:
+      - db
+    networks:
+      - app-network
+    restart: always
+
+  db:
+    image: postgres:14-alpine
+    volumes:
+      - db_data_prod:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      POSTGRES_DB: kcb_crypto_fiat_db
+      POSTGRES_USER: kcb_user
+      POSTGRES_PASSWORD: kcb_password_secure
+    networks:
+      - app-network
+    restart: always
+
+  # Frontend service (Next.js) - will be added in later levels
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile.prod
+  #   env_file:
+  #     - ./frontend/.env.production
+  #   depends_on:
+  #     - backend
+  #   networks:
+  #     - app-network
+  #   restart: always
+
+volumes:
+  db_data_prod:
+
+networks:
+  app-network:
+    driver: bridge

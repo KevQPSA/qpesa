@@ -1,0 +1,14 @@
+# Prometheus configuration for monitoring backend services
+global:
+  scrape_interval: 15s # How frequently to scrape targets by default.
+  evaluation_interval: 15s # How frequently to evaluate rules.
+
+scrape_configs:
+  - job_name: 'fastapi_backend'
+    # metrics_path defaults to /metrics
+    # scheme defaults to http
+    static_configs:
+      - targets: ['backend:8000'] # Replace with your backend service name and port
+        labels:
+          application: 'kcb-crypto-fiat-backend'
+          environment: 'development' # Or 'production'

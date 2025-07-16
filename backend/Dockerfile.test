@@ -1,0 +1,31 @@
+# Use the same base image as the main application for consistency
+FROM python:3.10-slim-buster
+
+# Set environment variables
+ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE 1
+
+# Set working directory
+WORKDIR /app/backend
+
+# Install system dependencies required for psycopg2 and other packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    netcat-traditional \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy poetry.lock and pyproject.toml first to leverage Docker cache
+COPY pyproject.toml poetry.lock ./
+
+# Install Poetry
+RUN pip install poetry
+
+# Install development dependencies (including pytest, httpx, etc.)
+RUN poetry install --no-root
+
+# Copy the rest of the application code
+COPY . .
+
+# Command to run tests (this will be executed by docker-compose.test.yml)
+CMD ["poetry", "run", "pytest", "tests/", "app/"]
