@@ -1,0 +1,37 @@
+# Snyk (https://snyk.io) policy file
+version: v1.25.0
+
+# Ignore specific vulnerabilities
+ignore:
+  # Example of ignoring a specific vulnerability in a package
+  # 'npm:package-name:20170301':
+  #   - '> parent-package@1.0.0':
+  #     reason: 'No remediation available'
+  #     expires: '2023-12-31T00:00:00.000Z'
+
+# Patch vulnerabilities
+patch: {}
+
+# Exclude specific files or directories from scanning
+exclude:
+  global:
+    - node_modules
+    - '**/__tests__/**'
+    - '**/__mocks__/**'
+    - '**/test/**'
+    - '**/tests/**'
+    - '**/*.test.*'
+    - '**/*.spec.*'
+    - '**/dist/**'
+    - '**/build/**'
+    - '**/coverage/**'
+    - '**/.venv/**'
+    - '**/.env/**'
+    - '**/venv/**'
+    - '**/env/**'
+    - '**/__pycache__/**'
+    - '**/.pytest_cache/**'
+    - '**/.mypy_cache/**'
+    - '**/.coverage/**'
+    - '**/.next/**'
+    - '**/out/**'

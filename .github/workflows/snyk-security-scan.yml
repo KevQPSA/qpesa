@@ -1,0 +1,79 @@
+name: Snyk Security Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 0 * * 0'  # Run weekly on Sundays at midnight
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  snyk-security-scan:
+    runs-on: ubuntu-latest
+    name: Snyk Security Scan
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        # Install frontend dependencies
+        npm ci
+        
+        # Install backend dependencies
+        cd backend
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+        cd ..
+
+    - name: Run Snyk to check for frontend vulnerabilities
+      uses: snyk/actions/node@master
+      continue-on-error: true  # Don't fail the build for now, just report
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: --severity-threshold=high
+
+    - name: Run Snyk to check for backend vulnerabilities
+      uses: snyk/actions/python@master
+      continue-on-error: true  # Don't fail the build for now, just report
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: --file=backend/requirements.txt --severity-threshold=high
+
+    - name: Run Snyk to check for IaC vulnerabilities
+      uses: snyk/actions/iac@master
+      continue-on-error: true  # Don't fail the build for now, just report
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: --severity-threshold=high
+
+    - name: Upload Snyk reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: snyk-reports
+        path: |
+          snyk-*.json
+          snyk-*.html
+
+    - name: Notify on high severity issues
+      if: ${{ failure() }}
+      run: |
+        echo "::warning::High severity security issues found in the codebase. Please check the Snyk reports."
