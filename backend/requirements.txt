@@ -54,3 +54,4 @@ bandit==1.7.5
 
 # Monitoring and logging
 structlog==23.2.0
+protobuf>=5.29.6 # not directly required, pinned by Snyk to avoid a vulnerability
